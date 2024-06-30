@@ -1,25 +1,9 @@
-"""
-The MIT License (MIT)
-Copyright © 2018 Jean-Christophe Bos & HC² (www.hc2.fr)
-"""
-
-
 from    json        import loads, dumps
 from    os          import stat
 from    _thread     import start_new_thread
 import  socket
 import  gc
 import  re
-
-try :
-    from microWebTemplate import MicroWebTemplate
-except :
-    pass
-
-try :
-    from microWebSocket import MicroWebSocket
-except :
-    pass
 
 class MicroWebSrvRoute :
     def __init__(self, route, method, func, routeArgNames, routeRegex) :
@@ -31,11 +15,6 @@ class MicroWebSrvRoute :
 
 
 class MicroWebSrv :
-
-    # ============================================================================
-    # ===( Constants )============================================================
-    # ============================================================================
-
     _indexPages = [
         "index.pyhtml",
         "index.html",
@@ -44,7 +23,6 @@ class MicroWebSrv :
         "default.html",
         "default.htm"
     ]
-
     _mimeTypes = {
         ".txt"   : "text/plain",
         ".htm"   : "text/html",
@@ -69,7 +47,6 @@ class MicroWebSrv :
         ".svg"   : "image/svg+xml",
         ".ico"   : "image/x-icon"
     }
-
     _html_escape_chars = {
         "&" : "&amp;",
         '"' : "&quot;",
@@ -77,18 +54,8 @@ class MicroWebSrv :
         ">" : "&gt;",
         "<" : "&lt;"
     }
-
     _pyhtmlPagesExt = '.pyhtml'
-
-    # ============================================================================
-    # ===( Class globals  )=======================================================
-    # ============================================================================
-
     _docoratedRouteHandlers = []
-
-    # ============================================================================
-    # ===( Utils  )===============================================================
-    # ============================================================================
 
     @classmethod
     def route(cls, url, method='GET'):
@@ -213,14 +180,15 @@ class MicroWebSrv :
                 if ex.args and ex.args[0] == 113 :
                     break
                 continue
-            self._client(self, client, cliAddr)
+            MicroWebSrv._startThread(self._client, (self, client, cliAddr))
+            # self._client(self, client, cliAddr)
         self._started = False
 
     # ============================================================================
     # ===( Functions )============================================================
     # ============================================================================
 
-    def Start(self, threaded=False) :
+    def Start(self) :
         if not self._started :
             self._server = socket.socket()
             self._server.setsockopt( socket.SOL_SOCKET,
@@ -228,10 +196,7 @@ class MicroWebSrv :
                                      1 )
             self._server.bind(self._srvAddr)
             self._server.listen(16)
-            if threaded :
-                MicroWebSrv._startThread(self._serverProcess)
-            else :
-                self._serverProcess()
+            self._serverProcess()
 
     # ----------------------------------------------------------------------------
 
@@ -286,15 +251,15 @@ class MicroWebSrv :
 
     # ----------------------------------------------------------------------------
 
-    def _physPathFromURLPath(self, urlPath) :
-        if urlPath == '/' :
-            for idxPage in self._indexPages :
+    def _physPathFromURLPath(self, urlPath):
+        if urlPath == '/':
+            for idxPage in self._indexPages:
             	physPath = self._webPath + '/' + idxPage
-            	if MicroWebSrv._fileExists(physPath) :
+                if MicroWebSrv._fileExists(physPath):
             		return physPath
-        else :
+        else:
             physPath = self._webPath + urlPath.replace('../', '/')
-            if MicroWebSrv._fileExists(physPath) :
+            if MicroWebSrv._fileExists(physPath):
                 return physPath
         return None
 
@@ -371,15 +336,6 @@ class MicroWebSrv :
                                     response.WriteResponseNotFound()
                             else :
                                 response.WriteResponseMethodNotAllowed()
-                        elif upg == 'websocket' and 'MicroWebSocket' in globals() \
-                             and self._microWebSrv.AcceptWebSocketCallback :
-                                MicroWebSocket( socket         = self._socket,
-                                                httpClient     = self,
-                                                httpResponse   = response,
-                                                maxRecvLen     = self._microWebSrv.MaxWebSocketRecvLen,
-                                                threaded       = self._microWebSrv.WebSocketThreaded,
-                                                acceptCallback = self._microWebSrv.AcceptWebSocketCallback )
-                                return
                         else :
                             response.WriteResponseNotImplemented()
                     else :
@@ -586,17 +542,12 @@ class MicroWebSrv :
 
         # ------------------------------------------------------------------------
 
-        def _writeServerHeader(self) :
-            self._writeHeader("Server", "MicroWebSrv by JC`zic")
-
-        # ------------------------------------------------------------------------
-
         def _writeEndHeader(self) :
             return self._write("\r\n")
 
         # ------------------------------------------------------------------------
 
-        def _writeBeforeContent(self, code, headers, contentType, contentCharset, contentLength) :
+        def _writeBeforeContent(self, code, headers, contentType, contentCharset, contentLength, close=True) :
             self._writeFirstLine(code)
             if isinstance(headers, dict) :
                 for header in headers :
@@ -604,8 +555,8 @@ class MicroWebSrv :
             if contentLength > 0 :
                 self._writeContentTypeHeader(contentType, contentCharset)
                 self._writeHeader("Content-Length", contentLength)
-            self._writeServerHeader()
-            self._writeHeader("Connection", "close")
+            if close:
+                self._writeHeader("Connection", "close")
             self._writeEndHeader()
 
         # ------------------------------------------------------------------------
@@ -617,7 +568,6 @@ class MicroWebSrv :
             if isinstance(headers, dict) :
                 for header in headers :
                     self._writeHeader(header, headers[header])
-            self._writeServerHeader()
             self._writeEndHeader()
             if self._client._socketfile is not self._client._socket :
                 self._client._socketfile.flush()   # CPython needs flush to continue protocol
@@ -638,27 +588,24 @@ class MicroWebSrv :
                 return True
             except :
                 return False
-
+            
         # ------------------------------------------------------------------------
 
-        def WriteResponsePyHTMLFile(self, filepath, headers=None, vars=None) :
-            if 'MicroWebTemplate' in globals() :
-                with open(filepath, 'r') as file :
-                    code = file.read()
-                mWebTmpl = MicroWebTemplate(code, escapeStrFunc=MicroWebSrv.HTMLEscape, filepath=filepath)
-                try :
-                    tmplResult = mWebTmpl.Execute(None, vars)
-                    return self.WriteResponse(200, headers, "text/html", "UTF-8", tmplResult)
-                except Exception as ex :
-                    return self.WriteResponse( 500,
-    	                                       None,
-    	                                       "text/html",
-    	                                       "UTF-8",
-    	                                       self._execErrCtnTmpl % {
-    	                                            'module'  : 'PyHTML',
-    	                                            'message' : str(ex)
-    	                                       } )
-            return self.WriteResponseNotImplemented()
+        def WriteResponseStreamHeader(self) :
+            self._writeFirstLine(200)
+            self._writeHeader("Content-Type", "multipart/x-mixed-replace;boundary=frame")
+            self._writeEndHeader()
+
+        def WriteResponseStreamData(self, content) :
+            try :
+                self._write("--frame\r\n")
+                self._write("Content-Type: image/jpeg\r\n")
+                self._writeEndHeader()
+                self._write(content)
+                self._writeEndHeader()
+                return True
+            except :
+                return False
 
         # ------------------------------------------------------------------------
 
