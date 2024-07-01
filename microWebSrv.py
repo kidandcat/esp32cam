@@ -2,7 +2,6 @@ from    json        import loads, dumps
 from    os          import stat
 from    _thread     import start_new_thread
 import  socket
-import  gc
 import  re
 
 class MicroWebSrvRoute :
@@ -173,15 +172,20 @@ class MicroWebSrv :
 
     def _serverProcess(self) :
         self._started = True
-        while True :
-            try :
+        print('Server ready on http://%s:%s' % self._srvAddr)
+        while True:
+            try:
+                print('Waiting for connection...')
                 client, cliAddr = self._server.accept()
             except Exception as ex :
                 if ex.args and ex.args[0] == 113 :
                     break
                 continue
-            MicroWebSrv._startThread(self._client, (self, client, cliAddr))
-            # self._client(self, client, cliAddr)
+            try:
+                self._client(self, client, cliAddr)
+            except Exception as ex:
+                print('MicroWebSrv self._client exception:\r\n  - %s' % ex)
+            client.close()
         self._started = False
 
     # ============================================================================
@@ -254,9 +258,9 @@ class MicroWebSrv :
     def _physPathFromURLPath(self, urlPath):
         if urlPath == '/':
             for idxPage in self._indexPages:
-            	physPath = self._webPath + '/' + idxPage
+                physPath = self._webPath + '/' + idxPage
                 if MicroWebSrv._fileExists(physPath):
-            		return physPath
+                    return physPath
         else:
             physPath = self._webPath + urlPath.replace('../', '/')
             if MicroWebSrv._fileExists(physPath):
@@ -268,8 +272,6 @@ class MicroWebSrv :
     # ============================================================================
 
     class _client :
-
-        # ------------------------------------------------------------------------
 
         def __init__(self, microWebSrv, socket, addr) :
             socket.settimeout(2)
@@ -299,45 +301,42 @@ class MicroWebSrv :
             try :
                 response = MicroWebSrv._response(self)
                 if self._parseFirstLine(response) :
+                    print('Processing request %s' % str(self._path))
                     if self._parseHeader(response) :
-                        upg = self._getConnUpgrade()
-                        if not upg :
-                            routeHandler, routeArgs = self._microWebSrv.GetRouteHandler(self._resPath, self._method)
-                            if routeHandler :
-                                try :
-                                    if routeArgs is not None:
-                                        routeHandler(self, response, routeArgs)
-                                    else :
-                                        routeHandler(self, response)
-                                except Exception as ex :
-                                    print('MicroWebSrv handler exception:\r\n  - In route %s %s\r\n  - %s' % (self._method, self._resPath, ex))
-                                    raise ex
-                            elif self._method.upper() == "GET" :
-                                filepath = self._microWebSrv._physPathFromURLPath(self._resPath)
-                                if filepath :
-                                    if MicroWebSrv._isPyHTMLFile(filepath) :
-                                        response.WriteResponsePyHTMLFile(filepath)
-                                    else :
-                                        contentType = self._microWebSrv.GetMimeTypeFromFilename(filepath)
-                                        if contentType :
-                                            if self._microWebSrv.LetCacheStaticContentLevel > 0 :
-                                                if self._microWebSrv.LetCacheStaticContentLevel > 1 and \
-                                                   'if-modified-since' in self._headers :
-                                                    response.WriteResponseNotModified()
-                                                else:
-                                                    headers = { 'Last-Modified' : 'Fri, 1 Jan 2018 23:42:00 GMT', \
-                                                                'Cache-Control' : 'max-age=315360000' }
-                                                    response.WriteResponseFile(filepath, contentType, headers)
-                                            else :
-                                                response.WriteResponseFile(filepath, contentType)
-                                        else :
-                                            response.WriteResponseForbidden()
+                        routeHandler, routeArgs = self._microWebSrv.GetRouteHandler(self._resPath, self._method)
+                        if routeHandler :
+                            try :
+                                if routeArgs is not None:
+                                    routeHandler(self, response, routeArgs)
+                                else:
+                                    routeHandler(self, response)
+                            except Exception as ex :
+                                print('MicroWebSrv handler exception:\r\n  - In route %s %s\r\n  - %s' % (self._method, self._resPath, ex))
+                                raise ex
+                        elif self._method.upper() == "GET" :
+                            filepath = self._microWebSrv._physPathFromURLPath(self._resPath)
+                            if filepath :
+                                if MicroWebSrv._isPyHTMLFile(filepath) :
+                                    response.WriteResponsePyHTMLFile(filepath)
                                 else :
-                                    response.WriteResponseNotFound()
+                                    contentType = self._microWebSrv.GetMimeTypeFromFilename(filepath)
+                                    if contentType :
+                                        if self._microWebSrv.LetCacheStaticContentLevel > 0 :
+                                            if self._microWebSrv.LetCacheStaticContentLevel > 1 and \
+                                                'if-modified-since' in self._headers :
+                                                response.WriteResponseNotModified()
+                                            else:
+                                                headers = { 'Last-Modified' : 'Fri, 1 Jan 2018 23:42:00 GMT', \
+                                                            'Cache-Control' : 'max-age=315360000' }
+                                                response.WriteResponseFile(filepath, contentType, headers)
+                                        else :
+                                            response.WriteResponseFile(filepath, contentType)
+                                    else :
+                                        response.WriteResponseForbidden()
                             else :
-                                response.WriteResponseMethodNotAllowed()
+                                response.WriteResponseNotFound()
                         else :
-                            response.WriteResponseNotImplemented()
+                            response.WriteResponseMethodNotAllowed()
                     else :
                         response.WriteResponseBadRequest()
             except :
@@ -507,14 +506,14 @@ class MicroWebSrv :
         # ------------------------------------------------------------------------
 
         def _write(self, data, strEncoding='ISO-8859-1') :
-            if data :
+            if data:
                 if type(data) == str :
                     data = data.encode(strEncoding)
                 data = memoryview(data)
                 while data :
                     n = self._client._socketfile.write(data)
                     if n is None :
-                        return False
+                        raise OSError(-1, 'write failed')
                     data = data[n:]
                 return True
             return False
@@ -597,15 +596,12 @@ class MicroWebSrv :
             self._writeEndHeader()
 
         def WriteResponseStreamData(self, content) :
-            try :
-                self._write("--frame\r\n")
-                self._write("Content-Type: image/jpeg\r\n")
-                self._writeEndHeader()
-                self._write(content)
-                self._writeEndHeader()
-                return True
-            except :
-                return False
+            if not self._write("--frame\r\n"): return False
+            if not self._write("Content-Type: image/jpeg\r\n"): return False
+            if not self._writeEndHeader(): return False
+            if not self._write(content): return False
+            if not self._writeEndHeader(): return False
+            return True
 
         # ------------------------------------------------------------------------
 

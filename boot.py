@@ -3,12 +3,8 @@ import config
 import network
 import utime
 import ntptime
-import uos
 import machine
-import time
-
-## ftp access
-#from ftp import ftpserver
+# import uos
 
 def do_connect():
     sta_if = network.WLAN(network.STA_IF)
@@ -30,6 +26,9 @@ def do_connect():
     else: 
         print('internet not available')
 
-do_connect()
-print('mounting sd card...')
-uos.mount(machine.SDCard(), "/sd")
+try:
+    do_connect()
+except Exception as e:
+    print(e)
+    machine.reset()
+# uos.mount(machine.SDCard(), "/sd")

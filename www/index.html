@@ -1,32 +1,17 @@
 <!DOCTYPE html>
 <html>
   <head>
-  
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <title>ESP32 Camera</title>
-    <meta name="robots" content="index,follow">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap.min.css" rel="stylesheet">
-    <script type="text/javascript">     
-      function isNumber(evt) {
-              evt = (evt) ? evt : window.event;
-              var charCode = (evt.which) ? evt.which : evt.keyCode;
-              if ( (charCode > 31 && charCode < 48) || charCode > 57) {
-                  return false;
-              }
-              return true;
-          }
-      </script>
   </head>
   <body onload="updateForm()">
     <div class="container content">
-      <div class="page-header">
-        <img src="logo.svg" alt="LeMaRiva|tech">
-      </div>
       <div class="panel panel-default">
         <div class="panel-body">
-          <img src='/stream' style="max-width: 100%;">
+          <img id="video" style="max-width: 100%;">
           <form id="uPyCam">
             <section class="section-preview">
               <div class="form-group">
@@ -112,28 +97,12 @@
           </form>
         </div>
       </div>
-
-        <footer class="footer">
-          <div class="container">
-            <span class="text-muted"><a href="https://lemariva.com">LeMaRiva|tech</a></span>
-          </div>
-        </footer>
     </div>
 
     <script language="javascript"> 
       var update_track = 0;
       var update_input = 0;
       var uPyCam = document.getElementById("uPyCam");
-
-      function imageRefresh(img, timeout) {
-        setTimeout(function() {
-        var d = new Date;
-        var http = img.src;
-        if (http.indexOf("/d") != -1) { http = http.split("/d")[0]; } 
-
-        img.src = http + '/d' + d.getTime();
-        }, timeout);
-      }
 
       function updateForm() {
           var xhttp = new XMLHttpRequest();
@@ -168,10 +137,15 @@
               uPyCam.forhFlipU.checked = false;
               uPyCam.forhFlipD.checked = true;
             }
+
+            setTimeout(function() {
+              document.querySelector('#video').src = '/stream'
+            }, 2000);
           }
         };
       }
       function submitForm() {
+        window.stop();
         update_track++;
 
         saturation = uPyCam.formSaturation.value;
@@ -186,16 +160,14 @@
         var this_update = update_track;
         var xhttp = new XMLHttpRequest();
         xhttp.onreadystatechange = function() {
-          if (this.readyState == 4 && this.status == 200 
-          && (!update_input || this_update == update_input)) {
-            update_input = 0;
+          if (this.readyState == 4 && this.status == 200) {
+            window.location.reload();
           }
         };
           xhttp.open("GET", "upy/" + saturation + "/" + brightness + "/" + contrast +
                             "/" + quality + "/" + vflip + "/" + hflip + "/" + framesize + "/" + flash, true);
           xhttp.send();
       }
-
     </script>    
     
   </body>
